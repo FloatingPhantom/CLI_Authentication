@@ -19,6 +19,10 @@ type registerMsg struct{ user *user.User }
 // loginMsg is sent after a successful login.
 type loginMsg struct{ result *auth.LoginResult }
 
+type dashActionMsg struct{ action string }
+
+type sessionExpiredMsg struct{}
+
 // totpRequiredMsg is sent when login requires TOTP.
 type totpRequiredMsg struct {
 	userID   int
@@ -168,8 +172,19 @@ func refreshUserCmd(svc *auth.Service, token string) tea.Cmd {
 	return func() tea.Msg {
 		u, _, err := svc.ValidateSession(context.Background(), token)
 		if err != nil {
-			return errMsg{err}
+			return sessionExpiredMsg{}
 		}
 		return userRefreshedMsg{user: u}
+	}
+}
+
+// validateSessionCmd checks if the session is still valid before running a dashboard action.
+func validateSessionCmd(svc *auth.Service, token string, action string) tea.Cmd {
+	return func() tea.Msg {
+		_, _, err := svc.ValidateSession(context.Background(), token)
+		if err != nil {
+			return sessionExpiredMsg{}
+		}
+		return dashActionMsg{action: action}
 	}
 }

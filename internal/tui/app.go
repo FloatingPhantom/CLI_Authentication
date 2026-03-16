@@ -212,6 +212,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
+	case sessionExpiredMsg:
+		m.currentUser = nil
+		m.sessionToken = ""
+		m.expiresAt = ""
+		m.state = stateMenu
+		m.err = errorStyle.Render("✗ Session expired. Please login again.")
+		m.info = ""
+		return m, nil
+
+	case dashActionMsg:
+		return m.handleDashboardCmd(msg.action)
+
 	case noSessionMsg:
 		m.state = stateMenu
 		return m, nil
@@ -287,6 +299,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case userRefreshedMsg:
 		m.currentUser = msg.user
+		if m.state == stateDashboard {
+			m.info = renderUserDetails(m.currentUser, m.expiresAt)
+		}
 		return m, nil
 
 	case errMsg:
@@ -500,10 +515,41 @@ func (m Model) handleDashboardCmd(cmd string) (tea.Model, tea.Cmd) {
 	m.err = ""
 	m.info = ""
 
-	switch strings.ToLower(cmd) {
-	case "whoami":
-		m.info = renderUserDetails(m.currentUser, m.expiresAt)
+	cmd = strings.ToLower(strings.TrimSpace(cmd))
+	if cmd == "" {
 		return m, nil
+	}
+
+	if cmd == "exit" || cmd == "quit" {
+		m.quitting = true
+		return m, tea.Quit
+	}
+	if cmd == "help" {
+		m.info = renderPostAuthHelp()
+		return m, nil
+	}
+
+	validCommands := map[string]bool{
+		"whoami":      true,
+		"enable-2fa":  true,
+		"disable-2fa": true,
+		"logout":      true,
+	}
+
+	if !validCommands[cmd] {
+		m.err = errorStyle.Render("✗ Unknown command: " + cmd + ". Type 'help' for available commands.")
+		return m, nil
+	}
+
+	return m, validateSessionCmd(m.authSvc, m.sessionToken, cmd)
+}
+
+func (m Model) executeDashboardAction(cmd string) (tea.Model, tea.Cmd) {
+	m.err = ""
+	m.info = ""
+	switch cmd {
+	case "whoami":
+		return m, refreshUserCmd(m.authSvc, m.sessionToken)
 
 	case "enable-2fa":
 		if m.currentUser.TOTPEnabled {
@@ -523,22 +569,9 @@ func (m Model) handleDashboardCmd(cmd string) (tea.Model, tea.Cmd) {
 
 	case "logout":
 		return m, logoutCmd(m.authSvc, m.sessionToken)
-
-	case "help":
-		m.info = renderPostAuthHelp()
-		return m, nil
-
-	case "exit", "quit":
-		m.quitting = true
-		return m, tea.Quit
-
-	case "":
-		return m, nil
-
-	default:
-		m.err = errorStyle.Render("✗ Unknown command: " + cmd + ". Type 'help' for available commands.")
-		return m, nil
 	}
+
+	return m, nil
 }
 
 // View renders the current state.
