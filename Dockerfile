@@ -5,11 +5,11 @@ WORKDIR /app
 
 # Cache dependencies
 COPY go.mod go.sum ./
-COPY vendor/ vendor/
+RUN go mod download
 
 # Build
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -ldflags="-s -w" -o /cli-auth ./cmd/cli-auth/
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /cli-auth ./cmd/cli-auth/
 
 # Runtime stage
 FROM alpine:3.20
