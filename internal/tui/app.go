@@ -72,9 +72,19 @@ type Model struct {
 	dashInput textinput.Model
 	dashCmd   string
 
+	// Command history
+	history    []string
+	historyIdx int    // -1 means not browsing history
+	historyBuf string // buffer for current input before history browsing
+
 	// Window size
 	width  int
 	height int
+}
+
+// dashCommands are the available post-login commands for tab-completion.
+var dashCommands = []string{
+	"whoami", "enable-2fa", "disable-2fa", "logout", "help", "exit",
 }
 
 // NewModel creates the initial app model.
@@ -83,6 +93,7 @@ func NewModel(authSvc *auth.Service, sessionStore *session.Store) Model {
 		authSvc:      authSvc,
 		sessionStore: sessionStore,
 		state:        stateLoading,
+		historyIdx:   -1,
 	}
 	m.initMenu()
 	m.initDashInput()
@@ -222,7 +233,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case dashActionMsg:
-		return m.handleDashboardCmd(msg.action)
+		return m.executeDashboardAction(msg.action)
 
 	case noSessionMsg:
 		m.state = stateMenu
@@ -299,6 +310,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case userRefreshedMsg:
 		m.currentUser = msg.user
+		// Show updated details (used by whoami and after 2FA changes)
 		if m.state == stateDashboard {
 			m.info = renderUserDetails(m.currentUser, m.expiresAt)
 		}
@@ -502,7 +514,73 @@ func (m Model) updateDashboard(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEnter:
 			cmd := strings.TrimSpace(m.dashInput.Value())
 			m.dashInput.SetValue("")
+			m.historyIdx = -1
+			m.historyBuf = ""
+			// Add to history (skip empty and consecutive duplicates)
+			if cmd != "" && (len(m.history) == 0 || m.history[len(m.history)-1] != cmd) {
+				m.history = append(m.history, cmd)
+			}
 			return m.handleDashboardCmd(cmd)
+
+		case tea.KeyUp:
+			// Browse history backward
+			if len(m.history) == 0 {
+				return m, nil
+			}
+			if m.historyIdx == -1 {
+				// Save current input before browsing
+				m.historyBuf = m.dashInput.Value()
+				m.historyIdx = len(m.history) - 1
+			} else if m.historyIdx > 0 {
+				m.historyIdx--
+			}
+			m.dashInput.SetValue(m.history[m.historyIdx])
+			m.dashInput.CursorEnd()
+			return m, nil
+
+		case tea.KeyDown:
+			// Browse history forward
+			if m.historyIdx == -1 {
+				return m, nil
+			}
+			if m.historyIdx < len(m.history)-1 {
+				m.historyIdx++
+				m.dashInput.SetValue(m.history[m.historyIdx])
+				m.dashInput.CursorEnd()
+			} else {
+				// Back to current input
+				m.historyIdx = -1
+				m.dashInput.SetValue(m.historyBuf)
+				m.dashInput.CursorEnd()
+			}
+			return m, nil
+
+		case tea.KeyTab:
+			// Tab-completion
+			partial := strings.ToLower(strings.TrimSpace(m.dashInput.Value()))
+			if partial == "" {
+				return m, nil
+			}
+			var matches []string
+			for _, c := range dashCommands {
+				if strings.HasPrefix(c, partial) {
+					matches = append(matches, c)
+				}
+			}
+			if len(matches) == 1 {
+				m.dashInput.SetValue(matches[0])
+				m.dashInput.CursorEnd()
+			} else if len(matches) > 1 {
+				// Find longest common prefix
+				prefix := longestCommonPrefix(matches)
+				if len(prefix) > len(partial) {
+					m.dashInput.SetValue(prefix)
+					m.dashInput.CursorEnd()
+				}
+				// Show available matches as info
+				m.info = mutedStyle.Render("  matches: " + strings.Join(matches, ", "))
+			}
+			return m, nil
 		}
 	}
 
@@ -511,11 +589,29 @@ func (m Model) updateDashboard(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// longestCommonPrefix returns the longest common prefix of a set of strings.
+func longestCommonPrefix(strs []string) string {
+	if len(strs) == 0 {
+		return ""
+	}
+	prefix := strs[0]
+	for _, s := range strs[1:] {
+		for i := 0; i < len(prefix); i++ {
+			if i >= len(s) || prefix[i] != s[i] {
+				prefix = prefix[:i]
+				break
+			}
+		}
+	}
+	return prefix
+}
+
 func (m Model) handleDashboardCmd(cmd string) (tea.Model, tea.Cmd) {
 	m.err = ""
 	m.info = ""
 
 	cmd = strings.ToLower(strings.TrimSpace(cmd))
+
 	if cmd == "" {
 		return m, nil
 	}
@@ -524,18 +620,16 @@ func (m Model) handleDashboardCmd(cmd string) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 	}
+
 	if cmd == "help" {
 		m.info = renderPostAuthHelp()
 		return m, nil
 	}
 
+	// All other commands require a valid session — validate first
 	validCommands := map[string]bool{
-		"whoami":      true,
-		"enable-2fa":  true,
-		"disable-2fa": true,
-		"logout":      true,
+		"whoami": true, "enable-2fa": true, "disable-2fa": true, "logout": true,
 	}
-
 	if !validCommands[cmd] {
 		m.err = errorStyle.Render("✗ Unknown command: " + cmd + ". Type 'help' for available commands.")
 		return m, nil
@@ -544,9 +638,11 @@ func (m Model) handleDashboardCmd(cmd string) (tea.Model, tea.Cmd) {
 	return m, validateSessionCmd(m.authSvc, m.sessionToken, cmd)
 }
 
+// executeDashboardAction runs a dashboard command after session is validated.
 func (m Model) executeDashboardAction(cmd string) (tea.Model, tea.Cmd) {
 	m.err = ""
 	m.info = ""
+
 	switch cmd {
 	case "whoami":
 		return m, refreshUserCmd(m.authSvc, m.sessionToken)
@@ -612,8 +708,6 @@ func renderPreAuthHelp() string {
 	return b.String()
 }
 
-var IST = time.FixedZone("IST", 5*60*60+30*60)
-
 func renderPostAuthHelp() string {
 	var b strings.Builder
 	b.WriteString(subtitleStyle.Render("Available Commands") + "\n\n")
@@ -625,6 +719,9 @@ func renderPostAuthHelp() string {
 	b.WriteString("  " + promptStyle.Render("exit") + "         — Quit the program\n")
 	return b.String()
 }
+
+// IST is the Indian Standard Time timezone (UTC+5:30).
+var IST = time.FixedZone("IST", 5*60*60+30*60)
 
 func renderUserDetails(u *user.User, expiresAt string) string {
 	var b strings.Builder

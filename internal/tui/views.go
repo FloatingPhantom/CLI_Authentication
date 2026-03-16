@@ -127,7 +127,7 @@ func (m Model) viewDashboard() string {
 
 	// Command prompt
 	b.WriteString("  " + m.dashInput.View() + "\n")
-	b.WriteString(helpStyle.Render("  commands: whoami • enable-2fa • disable-2fa • logout • help • exit"))
+	b.WriteString(helpStyle.Render("  tab complete • up/down history • commands: whoami • enable-2fa • disable-2fa • logout • help • exit"))
 	b.WriteString("\n")
 
 	return b.String()
