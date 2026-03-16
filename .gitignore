@@ -1,0 +1,19 @@
+# Binaries
+cli-auth
+*.exe
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Session files
+.session
+
+# Go
+vendor/
+
+.env

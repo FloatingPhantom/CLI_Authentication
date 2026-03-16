@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cliauth}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cliauth_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-cliauth}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cliauth}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  cli:
+    build: .
+    stdin_open: true     # Required for interactive CLI
+    tty: true            # Required for terminal rendering
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:-cliauth}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-cliauth_secret}
+      DB_NAME: ${POSTGRES_DB:-cliauth}
+      SESSION_TIMEOUT: ${SESSION_TIMEOUT:-30m}
+      SESSION_FILE_PATH: /data/.session
+    volumes:
+      - cli-data:/data
+
+volumes:
+  pg-data:
+  cli-data:
