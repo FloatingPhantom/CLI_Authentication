@@ -115,7 +115,7 @@ func restoreSessionCmd(svc *auth.Service, loadToken func() (string, error), time
 		return sessionRestoredMsg{
 			user:    u,
 			token:   token,
-			expires: sess.ExpiresAt.Format("2006-01-02 15:04:05 UTC"),
+			expires: sess.ExpiresAt.In(IST).Format("2006-01-02 15:04:05 IST"),
 		}
 	}
 }

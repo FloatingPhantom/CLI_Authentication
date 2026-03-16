@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -68,8 +69,8 @@ type Model struct {
 	pendingPassword string
 
 	// Dashboard command input
-	dashInput  textinput.Model
-	dashCmd    string
+	dashInput textinput.Model
+	dashCmd   string
 
 	// Window size
 	width  int
@@ -234,7 +235,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = ""
 		m.currentUser = msg.result.User
 		m.sessionToken = msg.result.Token
-		m.expiresAt = msg.result.ExpiresAt.Format("2006-01-02 15:04:05 UTC")
+		m.expiresAt = msg.result.ExpiresAt.In(IST).Format("2006-01-02 15:04:05 IST")
 		m.state = stateDashboard
 		m.dashInput.Focus()
 		m.dashInput.SetValue("")
@@ -578,6 +579,8 @@ func renderPreAuthHelp() string {
 	return b.String()
 }
 
+var IST = time.FixedZone("IST", 5*60*60+30*60)
+
 func renderPostAuthHelp() string {
 	var b strings.Builder
 	b.WriteString(subtitleStyle.Render("Available Commands") + "\n\n")
@@ -594,7 +597,7 @@ func renderUserDetails(u *user.User, expiresAt string) string {
 	var b strings.Builder
 	b.WriteString(subtitleStyle.Render("User Details") + "\n\n")
 	b.WriteString(labelStyle.Render("  Username:") + "  " + valueStyle.Render(u.Username) + "\n")
-	b.WriteString(labelStyle.Render("  Registered:") + "  " + valueStyle.Render(u.CreatedAt.Format("2006-01-02 15:04:05 UTC")) + "\n")
+	b.WriteString(labelStyle.Render("  Registered:") + "  " + valueStyle.Render(u.CreatedAt.In(IST).Format("2006-01-02 15:04:05 IST")) + "\n")
 
 	mfaStatus := successStyle.Render("Enabled ✓")
 	if !u.TOTPEnabled {
@@ -604,7 +607,7 @@ func renderUserDetails(u *user.User, expiresAt string) string {
 	b.WriteString(labelStyle.Render("  Session Expires:") + "  " + valueStyle.Render(expiresAt) + "\n")
 
 	if u.LastLoginAt != nil {
-		b.WriteString(labelStyle.Render("  Last Login:") + "  " + valueStyle.Render(u.LastLoginAt.Format("2006-01-02 15:04:05 UTC")) + "\n")
+		b.WriteString(labelStyle.Render("  Last Login:") + "  " + valueStyle.Render(u.LastLoginAt.In(IST).Format("2006-01-02 15:04:05 IST")) + "\n")
 	} else {
 		b.WriteString(labelStyle.Render("  Last Login:") + "  " + mutedStyle.Render("First login") + "\n")
 	}
